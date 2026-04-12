@@ -1,0 +1,14 @@
+{
+  "name": "flexjson-monorepo",
+  "private": true,
+  "scripts": {
+    "web:dev": "pnpm --filter web dev",
+    "web:build": "pnpm --filter web build",
+    "desktop:dev": "pnpm --filter desktop tauri dev",
+    "desktop:build": "pnpm --filter desktop tauri build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "rollup": "^4.60.1"
+  }
+}

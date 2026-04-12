@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/flexjson-core",
+    "packages/core-wasm",
+    "packages/desktop/src-tauri"
+]
+resolver = "2"

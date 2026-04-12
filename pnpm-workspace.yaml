@@ -1,0 +1,6 @@
+packages:
+  - 'packages/*'
+  - 'crates/*'
+allowBuilds:
+  '@swc/core': false
+  esbuild: false

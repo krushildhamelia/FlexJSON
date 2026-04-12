@@ -1,0 +1,31 @@
+# Rust
+/target
+Cargo.lock
+
+# Node.js
+node_modules
+dist
+.eslintcache
+*.log
+.pnpm-debug.log*
+
+# WASM
+/packages/core-wasm/pkg
+
+# Tauri
+/packages/desktop/src-tauri/target
+/packages/desktop/src-tauri/gen
+/packages/desktop/src-tauri/bin
+
+# IDEs
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
