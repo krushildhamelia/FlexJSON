@@ -2,8 +2,6 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { 
   AlertTriangle, 
   AlertCircle, 
-  Settings, 
-  GitBranch, 
   Cpu,
   Layers,
   FileCode,
@@ -61,22 +59,46 @@ function App() {
         <div className="flex-1 flex flex-col min-h-0 p-4">
           {parseResult && parseResult.fragments.length > 0 ? (
             <Tabs.Root defaultValue="frag-0" className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-2">
-                <Tabs.List className="flex gap-1 p-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-lg">
-                  {parseResult.fragments.map((_, i) => (
-                    <Tabs.Trigger
-                      key={i}
-                      value={`frag-${i}`}
-                      className="px-4 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer
-                        data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:text-primary-600 dark:data-[state=active]:text-primary-400 data-[state=active]:shadow-sm
-                        data-[state=inactive]:text-slate-500 hover:data-[state=inactive]:text-slate-700 dark:hover:data-[state=inactive]:text-slate-300"
-                    >
-                      Fragment {i + 1}
-                    </Tabs.Trigger>
-                  ))}
-                </Tabs.List>
+              <div className="flex items-center justify-between mb-2 gap-4">
+                <div className="flex-1 min-w-0 overflow-hidden">
+                  <Tabs.List 
+                    className="flex gap-1 p-1 bg-slate-200/50 dark:bg-slate-800/50 rounded-lg overflow-x-auto no-scrollbar scroll-smooth cursor-grab active:cursor-grabbing select-none"
+                    onMouseDown={(e) => {
+                      const el = e.currentTarget;
+                      const startX = e.pageX - el.offsetLeft;
+                      const scrollLeft = el.scrollLeft;
+                      
+                      const onMouseMove = (e: MouseEvent) => {
+                        e.preventDefault();
+                        const x = e.pageX - el.offsetLeft;
+                        const walk = (x - startX) * 2;
+                        el.scrollLeft = scrollLeft - walk;
+                      };
+                      
+                      const onMouseUp = () => {
+                        window.removeEventListener('mousemove', onMouseMove);
+                        window.removeEventListener('mouseup', onMouseUp);
+                      };
+                      
+                      window.addEventListener('mousemove', onMouseMove);
+                      window.addEventListener('mouseup', onMouseUp);
+                    }}
+                  >
+                    {parseResult.fragments.map((_, i) => (
+                      <Tabs.Trigger
+                        key={i}
+                        value={`frag-${i}`}
+                        className="px-4 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer shrink-0
+                          data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:text-primary-600 dark:data-[state=active]:text-primary-400 data-[state=active]:shadow-sm
+                          data-[state=inactive]:text-slate-500 hover:data-[state=inactive]:text-slate-700 dark:hover:data-[state=inactive]:text-slate-300"
+                      >
+                        Fragment {i + 1}
+                      </Tabs.Trigger>
+                    ))}
+                  </Tabs.List>
+                </div>
                 
-                <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500 shrink-0">
                    <Activity size={12} />
                    <span>Interactive Mode Active</span>
                 </div>

@@ -176,10 +176,9 @@ export const TreeViewer: React.FC<TreeViewerProps> = ({ fragment }) => {
         // MemberNode
         const keyLabel = node.key.kind === 'string' ? node.key.value : node.key.raw;
         const childStatus = checkSearch(node.value, path, keyLabel);
-        if (childStatus.matches || childStatus.hasMatchInDescendants) {
+        if (childStatus.matches) matches = true;
+        if (childStatus.hasMatchInDescendants) {
           hasMatchInDescendants = true;
-          // If the child (value) matches or has matches, this MemberNode essentially "matches" because its key is part of the path
-          // Actually, if the key matches, it's already caught by the label check above.
         }
       }
 
@@ -191,21 +190,24 @@ export const TreeViewer: React.FC<TreeViewerProps> = ({ fragment }) => {
       checkSearch(fragment.tree, 'root', undefined);
     }
 
-    function processNode(node: ParseNode | MemberNode, path: string, depth: number, label?: string) {
+    function processNode(node: ParseNode | MemberNode, path: string, depth: number, label?: string, forceVisible = false) {
       const status = searchStatus.get(path);
-      const isVisible = !searchActive || (status && (status.matches || status.hasMatchInDescendants));
+      const isVisible = forceVisible || !searchActive || (status && (status.matches || status.hasMatchInDescendants));
       
       if (!isVisible) return;
 
-      // In search mode, we force expansion if there are matching descendants
-      const isExpanded = searchActive ? (status?.hasMatchInDescendants ?? false) : expandedPaths.has(path);
+      const matches = status?.matches ?? false;
+      const shouldForceChildren = forceVisible || matches;
+
+      // In search mode, we force expansion if there are matching descendants OR if we are forcing visibility
+      const isExpanded = searchActive ? (shouldForceChildren || (status?.hasMatchInDescendants ?? false)) : expandedPaths.has(path);
       
       let hasChildren = false;
       let value: any = null;
       let matchesKey = false;
       let matchesValue = false;
 
-      if (searchActive && status?.matches) {
+      if (searchActive && matches) {
         // Determine if it was a key match or value match
         if (keySearch.trim() !== '' && label?.toLowerCase().includes(keySearch.toLowerCase())) {
           matchesKey = true;
@@ -226,7 +228,7 @@ export const TreeViewer: React.FC<TreeViewerProps> = ({ fragment }) => {
           result.push({ id: path, depth, label, node, hasChildren, isExpanded, type: 'object', matchesKey, matchesValue });
           if (isExpanded) {
             node.children.forEach((child, i) => {
-              processNode(child, `${path}.c${i}`, depth + 1);
+              processNode(child, `${path}.c${i}`, depth + 1, undefined, shouldForceChildren);
             });
           }
         } else if (node.kind === 'array') {
@@ -234,7 +236,7 @@ export const TreeViewer: React.FC<TreeViewerProps> = ({ fragment }) => {
           result.push({ id: path, depth, label, node, hasChildren, isExpanded, type: 'array', matchesKey, matchesValue });
           if (isExpanded) {
             node.elements.forEach((child, i) => {
-              processNode(child, `${path}.e${i}`, depth + 1, `[${i}]`);
+              processNode(child, `${path}.e${i}`, depth + 1, `[${i}]`, shouldForceChildren);
             });
           }
         } else {
@@ -247,7 +249,7 @@ export const TreeViewer: React.FC<TreeViewerProps> = ({ fragment }) => {
       } else {
         // MemberNode
         const keyLabel = node.key.kind === 'string' ? node.key.value : node.key.raw;
-        processNode(node.value, path, depth, keyLabel);
+        processNode(node.value, path, depth, keyLabel, forceVisible);
       }
     }
 
