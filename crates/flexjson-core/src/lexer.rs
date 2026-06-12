@@ -112,21 +112,97 @@ fn lex_unquoted<'a>(lex: &mut Lexer<'a, Token>) -> Option<String> {
 }
 
 fn is_value_boundary(input: &str) -> bool {
-    let mut lex = Token::lexer(&input[1..]);
-    if let Some(Ok(tok)) = lex.next() {
-        match tok {
-            Token::StringDouble
-            | Token::StringSingle
-            | Token::Number
-            | Token::Boolean
-            | Token::Null
-            | Token::Unquoted(_) => {
-                let mut lex2 = Token::lexer(lex.remainder());
-                matches!(lex2.next(), Some(Ok(Token::Separator)))
-            }
-            _ => false,
-        }
-    } else {
-        false
+    if !input.starts_with(',') {
+        return false;
     }
+    
+    let rest = &input[1..];
+    let mut chars = rest.char_indices().peekable();
+    
+    // Skip whitespace
+    while let Some(&(_, c)) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    
+    let start_idx = match chars.peek() {
+        Some(&(idx, _)) => idx,
+        None => return false,
+    };
+    
+    // Determine token type
+    let first_char = chars.peek().unwrap().1;
+    let token_end_idx = if first_char == '"' || first_char == '\'' {
+        let quote = first_char;
+        chars.next(); // consume opening quote
+        let mut escaped = false;
+        let mut closed = false;
+        let mut end_idx = None;
+        while let Some(&(idx, c)) = chars.peek() {
+            chars.next();
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == quote {
+                closed = true;
+                end_idx = Some(idx + 1);
+                break;
+            }
+        }
+        if !closed {
+            return false;
+        }
+        end_idx.unwrap()
+    } else {
+        // Unquoted key (or number, boolean, null)
+        let mut end_idx = start_idx;
+        while let Some(&(idx, c)) = chars.peek() {
+            // Check if it starts a separator -> or =>
+            if c == '-' || c == '=' {
+                let mut temp_chars = chars.clone();
+                temp_chars.next();
+                if let Some((_, '>')) = temp_chars.peek() {
+                    break;
+                }
+            }
+            
+            if c.is_whitespace() 
+                || c == '{' || c == '}' 
+                || c == '[' || c == ']' 
+                || c == ':' || c == '=' 
+                || c == ',' || c == '"' 
+                || c == '\'' || c == '/' 
+            {
+                break;
+            }
+            chars.next();
+            end_idx = idx + c.len_utf8();
+        }
+        if end_idx == start_idx {
+            return false; // empty key
+        }
+        end_idx
+    };
+    
+    // Skip whitespace after the key
+    let after_key = &rest[token_end_idx..];
+    let mut after_chars = after_key.chars().peekable();
+    while let Some(&c) = after_chars.peek() {
+        if c.is_whitespace() {
+            after_chars.next();
+        } else {
+            break;
+        }
+    }
+    
+    // Check if the remaining string starts with a separator: : or = or => or ->
+    let remaining: String = after_chars.collect();
+    remaining.starts_with(':') 
+        || remaining.starts_with('=') 
+        || remaining.starts_with("=>") 
+        || remaining.starts_with("->")
 }
