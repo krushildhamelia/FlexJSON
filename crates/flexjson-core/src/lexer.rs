@@ -18,28 +18,37 @@ pub enum Token {
     #[regex(r":|=>|->|=", priority = 5)]
     Separator,
 
-    #[regex(r#""([^"\\]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#)]
+    #[regex(r#""([^"\\]|\\.)*""#)]
     StringDouble,
 
-    #[regex(r#"'([^'\\]|\\['\\/bfnrt]|\\u[0-9a-fA-F]{4})*'"#)]
+    #[regex(r#"'([^'\\]|\\.)*'"#)]
     StringSingle,
+
+    #[regex(r#"`([^`\\]|\\.)*`"#)]
+    StringBacktick,
 
     #[regex(
         r"[+-]?([0-9]+(_[0-9]+)*)(\.[0-9]+(_[0-9]+)*)?([eE][+-]?[0-9]+(_[0-9]+)*)?",
         priority = 4
     )]
     #[regex(r"0x[0-9a-fA-F]+(_[0-9a-fA-F]+)*", priority = 4)]
+    #[regex(r"[+-]?\.[0-9]+(_[0-9]+)*([eE][+-]?[0-9]+(_[0-9]+)*)?", priority = 4)]
+    #[regex(r"[+-]?[0-9]+(_[0-9]+)*\.", priority = 5)]
     Number,
 
     #[regex("(?i:true|false|yes|no|on|off)", priority = 10)]
     Boolean,
 
-    #[regex("(?i:null|nil|none|undefined)", priority = 10)]
+    #[regex("(?i:null|nil|none|undefined|nan|[+-]?infinity)", priority = 10)]
     Null,
 
     // First char must not be structural, whitespace, quote, comment start.
     #[regex(r#"[^\{\}\[\]:,\s"'/=]+"#, lex_unquoted, priority = 1)]
     Unquoted(String),
+
+    // ISO 8601 Date regex
+    #[regex(r"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]+)?(Z|[+-][0-9][0-9]:?[0-9][0-9])?)?", priority = 6)]
+    Date,
 
     Unknown,
 }
@@ -72,7 +81,7 @@ fn lex_unquoted<'a>(lex: &mut Lexer<'a, Token>) -> Option<String> {
             continue;
         }
 
-        if b == b'"' || b == b'\'' {
+        if b == b'"' || b == b'\'' || b == b'`' {
             let mut has_close = false;
             let mut j = i + 1;
             while j < bytes.len() {
@@ -87,6 +96,10 @@ fn lex_unquoted<'a>(lex: &mut Lexer<'a, Token>) -> Option<String> {
             }
             i += 1;
             continue;
+        }
+
+        if b == b'/' && i + 1 < bytes.len() && (bytes[i + 1] == b'/' || bytes[i + 1] == b'*') {
+            break;
         }
 
         if b == b'}' || b == b']' || b == b'\n' || b == b'\r' || b == b':' || b == b'=' || b == b'>' {
@@ -135,7 +148,7 @@ fn is_value_boundary(input: &str) -> bool {
     
     // Determine token type
     let first_char = chars.peek().unwrap().1;
-    let token_end_idx = if first_char == '"' || first_char == '\'' {
+    let token_end_idx = if first_char == '"' || first_char == '\'' || first_char == '`' {
         let quote = first_char;
         chars.next(); // consume opening quote
         let mut escaped = false;
@@ -175,7 +188,7 @@ fn is_value_boundary(input: &str) -> bool {
                 || c == '[' || c == ']' 
                 || c == ':' || c == '=' 
                 || c == ',' || c == '"' 
-                || c == '\'' || c == '/' 
+                || c == '\'' || c == '`' || c == '/' 
             {
                 break;
             }

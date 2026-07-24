@@ -5,6 +5,7 @@ use serde::Serialize;
 pub enum QuoteStyle {
     Double,
     Single,
+    Backtick,
     None,
 }
 

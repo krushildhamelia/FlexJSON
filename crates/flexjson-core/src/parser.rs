@@ -64,11 +64,30 @@ impl<'a> Parser<'a> {
                     raw,
                 })
             }
+            Token::StringBacktick => {
+                let raw = self.lex.slice().to_string();
+                let value = raw[1..raw.len() - 1].to_string();
+                self.advance();
+                Ok(ParseNode::String {
+                    value,
+                    quote_style: QuoteStyle::Backtick,
+                    raw,
+                })
+            }
             Token::Unquoted(val) => {
                 let raw = self.lex.slice().to_string();
                 self.advance();
                 Ok(ParseNode::String {
                     value: val,
+                    quote_style: QuoteStyle::None,
+                    raw,
+                })
+            }
+            Token::Date => {
+                let raw = self.lex.slice().to_string();
+                self.advance();
+                Ok(ParseNode::String {
+                    value: raw.clone(),
                     quote_style: QuoteStyle::None,
                     raw,
                 })
@@ -83,7 +102,16 @@ impl<'a> Parser<'a> {
                         .parse::<f64>()
                         .unwrap_or(0.0)
                 } else {
-                    val_str.parse::<f64>().unwrap_or(0.0)
+                    let parse_str = if val_str.starts_with('.') {
+                        format!("0{}", val_str)
+                    } else if val_str.starts_with("+.") {
+                        format!("+0{}", &val_str[1..])
+                    } else if val_str.starts_with("-.") {
+                        format!("-0{}", &val_str[1..])
+                    } else {
+                        val_str
+                    };
+                    parse_str.parse::<f64>().unwrap_or(0.0)
                 };
                 self.advance();
                 Ok(ParseNode::Number { value, raw })
@@ -124,19 +152,55 @@ impl<'a> Parser<'a> {
                 }
             };
 
-            let separator = if let Some(Token::Separator) = self.current {
-                let sep = self.lex.slice().to_string();
-                self.advance();
-                sep
-            } else {
-                ":".to_string() // implicit separator
-            };
+            let mut key_node = key_node;
+            let mut value_node_opt = None;
+            let separator;
 
-            let value_node = match self.parse_value() {
-                Ok(n) => n,
-                Err(_) => ParseNode::Null {
-                    raw: "null".to_string(),
-                },
+            if let Some(Token::Separator) = self.current {
+                separator = self.lex.slice().to_string();
+                self.advance();
+            } else {
+                separator = ":".to_string();
+                if let ParseNode::String { value, quote_style: QuoteStyle::None, raw: _ } = &key_node {
+                    if let Some(space_idx) = value.find(char::is_whitespace) {
+                        let k = value[..space_idx].trim().to_string();
+                        let v = value[space_idx..].trim().to_string();
+                        if !k.is_empty() && !v.is_empty() {
+                            key_node = ParseNode::String {
+                                value: k.clone(),
+                                quote_style: QuoteStyle::None,
+                                raw: k,
+                            };
+                            let val_node = if v == "true" || v == "yes" || v == "on" || v == "True" {
+                                ParseNode::Boolean { value: true, raw: v }
+                            } else if v == "false" || v == "no" || v == "off" || v == "False" {
+                                ParseNode::Boolean { value: false, raw: v }
+                            } else if v == "null" || v == "nil" || v == "none" || v == "undefined" || v == "None" {
+                                ParseNode::Null { raw: v }
+                            } else if let Ok(num) = v.parse::<f64>() {
+                                ParseNode::Number { value: num, raw: v }
+                            } else {
+                                ParseNode::String {
+                                    value: v.clone(),
+                                    quote_style: QuoteStyle::None,
+                                    raw: v,
+                                }
+                            };
+                            value_node_opt = Some(val_node);
+                        }
+                    }
+                }
+            }
+
+            let value_node = if let Some(v_node) = value_node_opt {
+                v_node
+            } else {
+                match self.parse_value() {
+                    Ok(n) => n,
+                    Err(_) => ParseNode::Null {
+                        raw: "null".to_string(),
+                    },
+                }
             };
 
             children.push(MemberNode {

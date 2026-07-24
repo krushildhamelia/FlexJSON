@@ -1,12 +1,21 @@
 use crate::types::{ParseNode, QuoteStyle};
 
+pub fn normalize_key(node: &ParseNode) -> String {
+    let norm = normalize(node);
+    if norm.starts_with('"') && norm.ends_with('"') {
+        norm
+    } else {
+        format!("\"{}\"", norm)
+    }
+}
+
 pub fn normalize(node: &ParseNode) -> String {
     match node {
         ParseNode::Object { children, .. } => {
             let mut out = String::new();
             out.push('{');
             for (i, child) in children.iter().enumerate() {
-                out.push_str(&normalize(&child.key));
+                out.push_str(&normalize_key(&child.key));
                 out.push(':');
                 out.push_str(&normalize(&child.value));
                 if i < children.len() - 1 {
@@ -34,7 +43,11 @@ pub fn normalize(node: &ParseNode) -> String {
             if *quote_style == QuoteStyle::None {
                 normalize_unquoted(value)
             } else {
-                serde_json::to_string(&unescape_string(value)).unwrap()
+                if has_invalid_escapes(value) {
+                    serde_json::to_string(value).unwrap()
+                } else {
+                    serde_json::to_string(&unescape_string(value)).unwrap()
+                }
             }
         }
         ParseNode::Number { value, raw } => {
@@ -95,13 +108,52 @@ fn unescape_string(raw: &str) -> String {
     out
 }
 
+fn has_invalid_escapes(s: &str) -> bool {
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' {
+            if i + 1 >= chars.len() {
+                return true;
+            }
+            let next = chars[i + 1];
+            match next {
+                'n' | 'r' | 't' | '\\' | '"' | '\'' | 'b' | 'f' => {
+                    i += 2;
+                }
+                'u' => {
+                    if i + 5 < chars.len() {
+                        let mut is_hex = true;
+                        for j in 1..=4 {
+                            if !chars[i + 1 + j].is_ascii_hexdigit() {
+                                is_hex = false;
+                                break;
+                            }
+                        }
+                        if is_hex {
+                            i += 6;
+                            continue;
+                        }
+                    }
+                    return true;
+                }
+                _ => return true,
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 fn normalize_unquoted(raw: &str) -> String {
     let mut result = String::new();
     let chars: Vec<char> = raw.chars().collect();
+    let has_invalid = has_invalid_escapes(raw);
     let mut i = 0;
     while i < chars.len() {
         let ch = chars[i];
-        if ch == '"' || ch == '\'' {
+        if ch == '"' || ch == '\'' || ch == '`' {
             let mut has_close = false;
             let mut j = i + 1;
             while j < chars.len() {
@@ -119,8 +171,13 @@ fn normalize_unquoted(raw: &str) -> String {
                     if chars[i] == '"' {
                         result.push_str("\\\"");
                     } else if chars[i] == '\\' && i + 1 < chars.len() {
-                        result.push('\\');
-                        result.push(chars[i + 1]);
+                        if has_invalid {
+                            result.push_str("\\\\");
+                            result.push(chars[i + 1]);
+                        } else {
+                            result.push('\\');
+                            result.push(chars[i + 1]);
+                        }
                         i += 1;
                     } else {
                         escape_char_to(chars[i], &mut result);

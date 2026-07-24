@@ -88,5 +88,35 @@ pub fn extract(input: &str) -> Vec<Fragment> {
         }
     }
 
+    if fragments.is_empty() {
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            let mut start_line = 1;
+            let mut start_col = 1;
+            let mut start_offset = 0;
+            for (idx, c) in input.char_indices() {
+                if c.is_whitespace() {
+                    if c == '\n' {
+                        start_line += 1;
+                        start_col = 1;
+                    } else {
+                        start_col += 1;
+                    }
+                } else {
+                    start_offset = idx;
+                    break;
+                }
+            }
+            fragments.push(Fragment {
+                raw: trimmed.to_string(),
+                start_offset,
+                end_offset: start_offset + trimmed.len(),
+                start_line,
+                start_col,
+                fragment_type: "scalar".to_string(),
+            });
+        }
+    }
+
     fragments
 }

@@ -27,10 +27,13 @@ pub struct NormalizedFragment {
 }
 
 pub fn parse(input: &str) -> ParseResult {
+    let mut clean_input = input.strip_prefix('\u{FEFF}').unwrap_or(input);
+    clean_input = clean_input.trim_end_matches('\0');
+
     let mut fragments = Vec::new();
     let mut errors = Vec::new();
 
-    let extracted = extractor::extract(input);
+    let extracted = extractor::extract(clean_input);
 
     for (i, ext) in extracted.into_iter().enumerate() {
         let mut parser = parser::Parser::new(&ext.raw);
@@ -125,5 +128,112 @@ mod tests {
         assert_eq!(result.fragments.len(), 6);
         assert_eq!(result.fragments[0].json.is_empty(), false);
         assert_eq!(result.fragments[1].json.is_empty(), false);
+    }
+
+    #[test]
+    fn test_malformed_json_reference_guide_cases() {
+        // 1. Unquoted Object Keys
+        assert_eq!(parse("{a: 1}").fragments[0].json, r#"{"a":1}"#);
+        assert_eq!(parse("{a: {b: 1}}").fragments[0].json, r#"{"a":{"b":1}}"#);
+        assert_eq!(parse("{name: FlexJSON}").fragments[0].json, r#"{"name":"FlexJSON"}"#);
+        assert_eq!(parse("{first_name: John, last_name: Doe}").fragments[0].json, r#"{"first_name":"John","last_name":"Doe"}"#);
+        assert_eq!(parse("{$id: 1, _internal: true}").fragments[0].json, r#"{"$id":1,"_internal":true}"#);
+
+        // 2. = Used Instead of :
+        assert_eq!(parse("{a = 1}").fragments[0].json, r#"{"a":1}"#);
+        assert_eq!(parse("{a=1}").fragments[0].json, r#"{"a":1}"#);
+        assert_eq!(parse("{a=\"asd\"}").fragments[0].json, r#"{"a":"asd"}"#);
+        assert_eq!(parse("[{a=1}]").fragments[0].json, r#"[{"a":1}]"#);
+        assert_eq!(parse("{a=[1,2,3, \"asd\"]}").fragments[0].json, r#"{"a":[1,2,3,"asd"]}"#);
+        assert_eq!(parse("{a:{b=[]}}").fragments[0].json, r#"{"a":{"b":[]}}"#);
+
+        // 3. Single Quotes / Mixed Quote Styles
+        assert_eq!(parse("{'a': 'value'}").fragments[0].json, r#"{"a":"value"}"#);
+        assert_eq!(parse("{\"a\": 'value'}").fragments[0].json, r#"{"a":"value"}"#);
+        assert_eq!(parse("{'name': \"FlexJSON's parser\"}").fragments[0].json, r#"{"name":"FlexJSON's parser"}"#);
+        // Note: the following tests the merge/escape handling of unmatched quotes
+        assert_eq!(parse("{name: FlexJSON \"Neon's }").fragments[0].json, r#"{"name":"FlexJSON \"Neon's"}"#);
+
+        // 4. Unquoted Date / Timestamp Values
+        assert_eq!(parse("{a=2017-10-10}").fragments[0].json, r#"{"a":"2017-10-10"}"#);
+        assert_eq!(parse("{a=2017-10-10T10:10:10.010Z}").fragments[0].json, r#"{"a":"2017-10-10T10:10:10.010Z"}"#);
+        assert_eq!(parse("{createdAt: 2024-01-01T00:00:00Z}").fragments[0].json, r#"{"createdAt":"2024-01-01T00:00:00Z"}"#);
+        assert_eq!(parse("{date: Jan 5, 2020}").fragments[0].json, r#"{"date":"Jan 5, 2020"}"#);
+
+        // 5. Numeric Literal Edge Cases
+        assert_eq!(parse("{a=+123}").fragments[0].json, r#"{"a":123}"#);
+        assert_eq!(parse("{a=1.0E7}").fragments[0].json, r#"{"a":10000000.0}"#);
+        assert_eq!(parse("{a=.5}").fragments[0].json, r#"{"a":0.5}"#);
+        assert_eq!(parse("{a=5.}").fragments[0].json, r#"{"a":5.0}"#);
+        assert_eq!(parse("{a=007}").fragments[0].json, r#"{"a":7}"#);
+        assert_eq!(parse("{a=0x1F}").fragments[0].json, r#"{"a":31}"#);
+        assert_eq!(parse("{a=1_000_000}").fragments[0].json, r#"{"a":1000000}"#);
+        assert_eq!(parse("{a=NaN}").fragments[0].json, r#"{"a":null}"#);
+        assert_eq!(parse("{a=Infinity}").fragments[0].json, r#"{"a":null}"#);
+        assert_eq!(parse("{a=-Infinity}").fragments[0].json, r#"{"a":null}"#);
+
+        // 6. Comments
+        assert_eq!(parse("{a=123 // comment\n}").fragments[0].json, r#"{"a":123}"#);
+        assert_eq!(parse("{a=1232 /* multi line comment*/}").fragments[0].json, r#"{"a":1232}"#);
+        assert_eq!(parse("{\n  // leading comment\n  \"a\": 1\n}").fragments[0].json, r#"{"a":1}"#);
+        assert_eq!(parse("{\"a\": 1, /* inline */ \"b\": 2}").fragments[0].json, r#"{"a":1,"b":2}"#);
+
+        // 7. Adjacent String Literals / Missing Commas inside brackets
+        assert_eq!(parse(r#"{"tags": ["JSON" "parser" "fault-tolerant"]}"#).fragments[0].json, r#"{"tags":["JSON","parser","fault-tolerant"]}"#);
+
+        // 8. Trailing Commas
+        assert_eq!(parse("{\"a\": 1, \"b\": 2,}").fragments[0].json, r#"{"a":1,"b":2}"#);
+        assert_eq!(parse("[1, 2, 3,]").fragments[0].json, r#"[1,2,3]"#);
+        assert_eq!(parse("{\"a\": [1, 2,], \"b\": 3,}").fragments[0].json, r#"{"a":[1,2],"b":3}"#);
+
+        // 9. Missing Commas
+        assert_eq!(parse("{\"a\": 1 \"b\": 2}").fragments[0].json, r#"{"a":1,"b":2}"#);
+        assert_eq!(parse("[80 443 8080]").fragments[0].json, r#"[80,443,8080]"#);
+
+        // 10. Missing Separator
+        assert_eq!(parse("{\"status\" 200, \"message\" \"Success\"}").fragments[0].json, r#"{"status":200,"message":"Success"}"#);
+        assert_eq!(parse("{\"port\" 8080}").fragments[0].json, r#"{"port":8080}"#);
+
+        // 11. Missing Closing Brackets / Truncated Structures
+        assert_eq!(parse("{\"server\": \"localhost\", \"ports\": [80, 443, 8080").fragments[0].json, r#"{"server":"localhost","ports":[80,443,8080]}"#);
+        assert_eq!(parse("{\"a\": {\"b\": 1").fragments[0].json, r#"{"a":{"b":1}}"#);
+        assert_eq!(parse("{\"items\": [\"a\", \"b\"").fragments[0].json, r#"{"items":["a","b"]}"#);
+
+        // 12. Python/JS-Style Literal Keywords
+        assert_eq!(parse("{\"active\": True}").fragments[0].json, r#"{"active":true}"#);
+        assert_eq!(parse("{\"active\": False}").fragments[0].json, r#"{"active":false}"#);
+        assert_eq!(parse("{\"value\": None}").fragments[0].json, r#"{"value":null}"#);
+        assert_eq!(parse("{\"value\": undefined}").fragments[0].json, r#"{"value":null}"#);
+
+        // 13. Unquoted / Bare Top-Level Scalars
+        assert_eq!(parse("yes").fragments[0].json, "true");
+        assert_eq!(parse("on").fragments[0].json, "true");
+        assert_eq!(parse("off").fragments[0].json, "false");
+        assert_eq!(parse("null").fragments[0].json, "null");
+        assert_eq!(parse("42").fragments[0].json, "42");
+
+        // 15. Unescaped Strings & Backticks
+        assert_eq!(parse("{\"note\": \"line1\nline2\"}").fragments[0].json, r#"{"note":"line1\nline2"}"#);
+        assert_eq!(parse(r#"{"path": "C:\Users\test"}"#).fragments[0].json, r#"{"path":"C:\\Users\\test"}"#);
+        assert_eq!(parse("{\"sql\": `SELECT * FROM t`}").fragments[0].json, r#"{"sql":"SELECT * FROM t"}"#);
+
+        // 17. BOM / Encoding Noise
+        assert_eq!(parse("\u{FEFF}{\"a\": 1}").fragments[0].json, r#"{"a":1}"#);
+        assert_eq!(parse("{\"a\": 1}\0").fragments[0].json, r#"{"a":1}"#);
+
+        // 16. Combined / Stress-Test Case
+        let stress = r#"
+{
+  server = localhost // dev override
+  ports: [80, 443 8080,]
+  meta = {name: FlexJSON, created=2024-01-01T00:00:00Z}
+  "flags" True False None
+  status 200
+}
+"#;
+        assert_eq!(
+            parse(stress).fragments[0].json,
+            r#"{"server":"localhost","ports":[80,443,8080],"meta":{"name":"FlexJSON","created":"2024-01-01T00:00:00Z"},"flags":true,"false":null,"status":200}"#
+        );
     }
 }
